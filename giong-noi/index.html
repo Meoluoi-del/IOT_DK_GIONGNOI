@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Điều khiển IoT bằng giọng nói</title>
+  <style>
+    *{box-sizing:border-box}body{font:17px/1.6 system-ui,sans-serif;background:#f3f6fa;color:#162a40;margin:0;padding:40px 20px}main{max-width:720px;margin:auto;background:white;border:1px solid #d9e2ec;border-radius:18px;padding:32px}h1{font-size:28px;line-height:1.25;margin-top:0}button,input{font:inherit;border-radius:8px;padding:12px;border:1px solid #aebdcd}button{cursor:pointer;background:#1759ab;color:white}button:disabled{opacity:.55;cursor:wait}input{width:100%;margin:8px 0 12px}#status{padding:16px;background:#edf3fa;border-radius:8px;white-space:pre-wrap}.hint{color:#526578;font-size:15px}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Điều khiển đèn và quạt</h1>
+  <p>Giữ mô phỏng Wokwi chạy và thiết bị Blynk ở trạng thái Online.</p>
+  <p>Nói một trong bốn lệnh: <strong>bật đèn · tắt đèn · bật quạt · tắt quạt</strong>.</p>
+  <p class="hint">Project của bạn: <a href="https://wokwi.com/projects/477223713128462337" target="_blank" rel="noopener noreferrer">mạch Wokwi</a> · <a href="https://blynk.cloud/dashboard/1153470/templates/2567226/dashboard" target="_blank" rel="noopener noreferrer">dashboard Blynk</a> · <a href="https://thingspeak.mathworks.com/channels/3525538" target="_blank" rel="noopener noreferrer">channel ThingSpeak 3525538</a>.</p>
+  <button id="listen" type="button">Nhấn để nói</button>
+  <p class="hint">Cho phép truy cập micro. Nhận giọng nói phụ thuộc trình duyệt và kết nối Internet; âm thanh có thể được dịch vụ của trình duyệt xử lý.</p>
+  <form id="command-form">
+    <label for="command">Hoặc nhập câu lệnh để kiểm tra kết nối</label>
+    <input id="command" maxlength="200" placeholder="bật đèn" autocomplete="off" required>
+    <button id="send" type="submit">Gửi lệnh</button>
+  </form>
+  <p id="status" role="status" aria-live="polite">Sẵn sàng.</p>
+</main>
+<script>
+const statusBox = document.querySelector('#status');
+const input = document.querySelector('#command');
+const listen = document.querySelector('#listen');
+const send = document.querySelector('#send');
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let busy = false;
+function setBusy(value) {
+  busy = value;
+  send.disabled = value;
+  listen.disabled = value || !SpeechRecognition;
+}
+async function sendCommand(text) {
+  if (busy) return;
+  setBusy(true);
+  statusBox.textContent = 'Đang gửi: ' + text;
+  try {
+    const response = await fetch('/command', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text})
+    });
+    const result = await response.json();
+    statusBox.textContent = result.message;
+  } catch {
+    statusBox.textContent = 'Không xác nhận được kết quả. Kiểm tra cửa sổ Python và trạng thái Wokwi trước khi gửi lại.';
+  } finally { setBusy(false); }
+}
+document.querySelector('#command-form').addEventListener('submit', event => {
+  event.preventDefault();
+  sendCommand(input.value);
+});
+if (!SpeechRecognition) {
+  listen.disabled = true;
+  statusBox.textContent = 'Trình duyệt chưa hỗ trợ nhận giọng nói. Thử Chrome trên máy tính; bạn vẫn có thể nhập lệnh.';
+} else {
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'vi-VN';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  let heard = '';
+  let speechError = false;
+  listen.addEventListener('click', () => {
+    heard = ''; speechError = false;
+    setBusy(true);
+    statusBox.textContent = 'Đang nghe…';
+    try { recognition.start(); }
+    catch { setBusy(false); statusBox.textContent = 'Chưa mở được micro. Hãy thử lại.'; }
+  });
+  recognition.onresult = event => {
+    heard = event.results[0][0].transcript;
+    input.value = heard;
+  };
+  recognition.onerror = event => {
+    speechError = true;
+    statusBox.textContent = 'Nhận giọng nói bị lỗi: ' + event.error + '. Kiểm tra micro, quyền truy cập và Internet; có thể nhập lệnh để thử.';
+  };
+  recognition.onend = () => {
+    setBusy(false);
+    if (heard && !speechError) sendCommand(heard);
+    else if (!speechError) statusBox.textContent = 'Chưa nghe được câu lệnh. Hãy nhấn nút và thử lại.';
+  };
+}
+</script>
+</body>
+</html>
